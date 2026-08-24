@@ -1,0 +1,17 @@
+<Bindings>
+  <Binding name="PROSPECTPROFITTOGGLE" header="PROSPECTPROFIT">
+    ProspectProfit:ToggleWindow();
+  </Binding>
+  <Binding name="PROSPECTPROFITPREVORE">
+    ProspectProfit:CycleOre(-1);
+  </Binding>
+  <Binding name="PROSPECTPROFITNEXTORE">
+    ProspectProfit:CycleOre(1);
+  </Binding>
+  <Binding name="PROSPECTPROFITSCAN">
+    ProspectProfit:ScanMarket();
+  </Binding>
+  <Binding name="PROSPECTPROFITBUYOUT">
+    ProspectProfit:BuyoutStack();
+  </Binding>
+</Bindings>
