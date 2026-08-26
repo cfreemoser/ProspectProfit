@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "5.1"
+          # Lua 5.1's own sources warn on modern gcc; not our code.
+          luaCompileFlags: "MYCFLAGS=-w"
+      - name: Run economy tests
+        run: lua tests/test_economy.lua
