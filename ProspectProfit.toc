@@ -2,6 +2,7 @@
 ## Title: ProspectProfit
 ## Notes: BUY/SKIP prospecting EV for TBC ores from live Auction House prices.
 ## Author: ProspectProfit
+## IconTexture: Interface\AddOns\ProspectProfit\ProspectProfitIcon
 ## Version: 1.0.0
 ## SavedVariables: ProspectProfitDB
 
