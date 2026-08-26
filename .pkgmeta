@@ -1,0 +1,6 @@
+package-as: ProspectProfit
+enable-nolib-creation: no
+
+ignore:
+  - README.md
+  - tests
