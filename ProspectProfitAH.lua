@@ -320,7 +320,9 @@ function AH:WantsSort()
   if self.sorted or (self.page or 0) ~= 0 then
     return false
   end
-  return self:IsGemQuery() or self.mode == "buyout" or self.mode == "commit"
+  -- Gem scans page every listing for min unit buyout. Sorting needs the
+  -- browse frame, which the Prospect tab hides, and was saving 0c prices.
+  return self.mode == "buyout" or self.mode == "commit"
 end
 
 function AH:FinishGem(itemId)
@@ -364,6 +366,14 @@ function AH:ProcessPage(itemId)
   end
 
   if self:IsGemQuery() then
+    local batch, total = GetNumAuctionItems("list")
+    total = total or 0
+    local scanned = self.page * PAGE_SIZE + batch
+    if total > 0 and scanned < total then
+      self.page = self.page + 1
+      self:QueryCurrent()
+      return
+    end
     self:FinishGem(itemId)
     return
   end
@@ -502,8 +512,12 @@ function AH:BuildScanQueue(ore, force)
   for _, gem in ipairs(ore.gems) do
     if not seen[gem.id] then
       seen[gem.id] = true
-      local fresh = (not force) and PP.DB:GetFreshGem(gem.id)
-      if fresh ~= nil then
+      -- Do not write `(not force) and GetFreshGem()`: `false ~= nil` is true in Lua.
+      local fresh
+      if not force then
+        fresh = PP.DB:GetFreshGem(gem.id)
+      end
+      if type(fresh) == "number" and fresh > 0 then
         gems[gem.id] = fresh
         cached = cached + 1
       else

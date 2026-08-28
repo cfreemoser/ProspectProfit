@@ -52,12 +52,23 @@ function DB:GetFreshGem(itemId)
   if (time() - g.lastScan) >= GEM_TTL then
     return nil
   end
+  -- 0 means "no listing", not a usable price. Skip so the next scan retries.
+  if not g.minBuyout or g.minBuyout <= 0 then
+    return nil
+  end
   return g.minBuyout
 end
 
 function DB:SaveGem(itemId, minBuyout)
-  self:Realm().gems[itemId] = {
-    minBuyout = minBuyout or 0,
+  minBuyout = minBuyout or 0
+  local realm = self:Realm()
+  local prev = realm.gems[itemId]
+  -- A failed/empty lookup must not wipe a real cached buyout.
+  if minBuyout <= 0 and prev and prev.minBuyout and prev.minBuyout > 0 then
+    return
+  end
+  realm.gems[itemId] = {
+    minBuyout = minBuyout,
     lastScan = time(),
   }
 end
