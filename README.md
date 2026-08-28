@@ -1,8 +1,17 @@
 # ProspectProfit
 
-BUY/SKIP prospecting EV for TBC ores from live Auction House prices.
+BUY/SKIP prospecting expected value for TBC ores from live Auction House prices.
 
-Open the **Prospect** tab at the AH. The addon scans ore and gem listings, estimates expected gem value, and tells you whether a 20-stack is worth buying.
+Open the **Prospect** tab at the AH. The addon scans ore and prospecting-output listings, estimates expected net proceeds, and tells you whether a 20-stack clears a conservative purchase threshold.
+
+The calculation uses four prospects per 20 ore and sums `expected output quantity × price`. It then applies the faction Auction House's 5% seller cut. Successful-sale deposits are returned, so deposits are not treated as a permanent cost. Neutral-AH sales are not modeled.
+
+`BUY` requires both at least 10% expected ROI and at least 1g expected profit. These are safety margins, not a variance estimate or a guarantee. `SKIP` means **do not buy this listing**; it is not advice to sell ore you already own.
+
+The ore table follows TBC prospecting data and includes the guaranteed powder output for every ore (one expected powder per prospect). Khorium is excluded because it is not a prospecting input. Cross-checks:
+
+- [CMaNGOS TBC prospecting loot table](https://github.com/mangosone/database/blob/master/World/Setup/FullDB/prospecting_loot_template.sql)
+- [TBC Classic prospecting guide and yield table](https://www.wow-professions.com/tbc/prospecting)
 
 ## Install
 

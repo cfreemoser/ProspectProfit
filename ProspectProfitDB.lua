@@ -100,6 +100,9 @@ end
 
 function DB:GetOre(oreId)
   local bucket = self:Realm().ores[oreId]
+  if bucket and (not PP.Economy or bucket.policyVersion ~= PP.Economy.PolicyVersion) then
+    return nil
+  end
   return bucket
 end
 

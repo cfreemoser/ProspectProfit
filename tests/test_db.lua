@@ -21,6 +21,7 @@ ProspectProfitDB = nil
 
 dofile(root .. "/ProspectProfitData.lua")
 dofile(root .. "/ProspectProfitDB.lua")
+dofile(root .. "/ProspectProfitEconomy.lua")
 dofile(root .. "/ProspectProfitAH.lua")
 
 local DB = ProspectProfit.DB
@@ -47,7 +48,17 @@ for _, ore in ipairs(Data.Ores) do
     break
   end
 end
-check(ada ~= nil and #ada.gems == 12, "adamantite has 12 gems")
+check(ada ~= nil and #ada.gems == 13, "adamantite has 12 gems plus powder")
+
+-- Snapshots made under the old gross-value policy must not drive purchases.
+DB:SaveOre(ada.id, { rec = "BUY", be1 = 999999 })
+check(DB:GetOre(ada.id) == nil, "legacy policy snapshot is invalidated")
+local current = { policyVersion = ProspectProfit.Economy.PolicyVersion, rec = "SKIP" }
+DB:SaveOre(ada.id, current)
+check(DB:GetOre(ada.id) == current, "current policy snapshot is available")
+DB.sv.selectedOreIndex = 8
+check(DB:GetSelected() == 1, "removed Khorium selection falls back to first ore")
+DB.sv.selectedOreIndex = 6
 
 -- Fresh positive buyout is returned
 DB:SaveGem(23077, 12345)
@@ -99,21 +110,21 @@ for i, gem in ipairs(gems) do
   DB:SaveGem(gem.id, (i <= 6) and 0 or (10 * 10000))
 end
 local queue, prices, cached, live = AH:BuildScanQueue(ada, false)
-check(cached == 6, "six listed gems cached, got " .. tostring(cached))
-check(live == 6, "six zero-price gems live-scanned, got " .. tostring(live))
-check(#queue == 1 + 6, "queue is ore + unlisted gems")
+check(cached == 7, "seven listed outputs cached, got " .. tostring(cached))
+check(live == 6, "six zero-price outputs live-scanned, got " .. tostring(live))
+check(#queue == 1 + 6, "queue is ore + unlisted outputs")
 check(queue[1] == ada.id, "ore is first in queue")
 for i = 1, 6 do
   check(prices[gems[i].id] == nil, "unlisted gem " .. gems[i].id .. " not in cached prices")
 end
-for i = 7, 12 do
+for i = 7, 13 do
   check(prices[gems[i].id] == 10 * 10000, "listed gem " .. gems[i].id .. " uses cache")
 end
 
 -- Forced scan ignores cache
 local q2, p2, c2, l2 = AH:BuildScanQueue(ada, true)
-check(c2 == 0 and l2 == 12, "force scan live-queries every gem")
-check(#q2 == 13, "force queue is ore + 12 gems")
+check(c2 == 0 and l2 == 13, "force scan live-queries every output")
+check(#q2 == 14, "force queue is ore + 13 outputs")
 check(next(p2) == nil, "force scan starts with no gem prices")
 
 if fails == 0 then

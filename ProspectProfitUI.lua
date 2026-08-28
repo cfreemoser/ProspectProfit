@@ -159,7 +159,7 @@ function UI:Create()
   local verdictWhy = verdictBg:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   verdictWhy:SetPoint("TOP", verdict, "BOTTOM", 0, -2)
   verdictWhy:SetTextColor(unpack(MUTED))
-  verdictWhy:SetText("Scan to compare ore cost vs gem value")
+  verdictWhy:SetText("Scan to compare ore cost vs expected net")
 
   local stats = CreateFrame("Frame", nil, frame)
   stats:SetPoint("TOPLEFT", verdictBg, "BOTTOMLEFT", 16, -10)
@@ -183,8 +183,8 @@ function UI:Create()
   end
 
   local _, costValue = StatRow(1, "You pay for 20 ore")
-  local _, gemsValue = StatRow(2, "Gems from 20 ore are worth")
-  local _, profitValue, profitLabel = StatRow(3, "You keep")
+  local _, gemsValue = StatRow(2, "Expected net from 20 ore")
+  local _, profitValue, profitLabel = StatRow(3, "Expected profit")
 
   local status = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   status:SetPoint("TOPLEFT", 2, 0)
@@ -326,7 +326,7 @@ function UI:CreateMath()
   local blurb = dlg:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   blurb:SetPoint("TOP", title, "BOTTOM", 0, -4)
   blurb:SetTextColor(unpack(MUTED))
-  blurb:SetText("Each prospect uses 5 ore. Chance × gem price = that gem's share.")
+  blurb:SetText("Expected quantity × AH price, less the 5% faction AH seller cut.")
 
   local rows = {}
   for i = 1, 18 do
@@ -397,19 +397,23 @@ function UI:ShowMath()
     if line.rare then
       name = name .. "  (rare)"
     end
-    local chance = PP.Economy.FormatChance(line.chance)
+    local quantity = PP.Economy.FormatQuantity(line.expectedQuantity)
     local price = line.price and PP.Economy.FormatMoney(line.price) or "no listing"
-    put(name, chance .. "  ×  " .. price, "=  " .. PP.Economy.FormatMoney(line.contrib))
+    put(name, quantity .. " expected  ×  " .. price, "=  " .. PP.Economy.FormatMoney(line.netContrib))
   end
-  put("", "", "")
-  put("One prospect (5 ore)", "", PP.Economy.FormatMoney(expl.ev))
-  put("× 4  →  gems from 20 ore", "", PP.Economy.FormatMoney(expl.be20))
+  put("Expected net per prospect", "", PP.Economy.FormatMoney(expl.netEV))
+  put("× 4  →  expected net from 20", "", PP.Economy.FormatMoney(expl.expectedNet20))
   put("You pay for 20 ore", "", PP.Economy.FormatMoney(expl.cost))
-  if expl.profit and expl.profit < 0 then
-    put("You lose", "", PP.Economy.FormatMoney(expl.profit), unpack(NEG))
+  if expl.expectedProfit and expl.expectedProfit < 0 then
+    put("Expected loss", "", PP.Economy.FormatMoney(expl.expectedProfit), unpack(NEG))
   else
-    put("You keep", "", PP.Economy.FormatMoney(expl.profit), unpack(POS))
+    put("Expected profit", "", PP.Economy.FormatMoney(expl.expectedProfit), unpack(POS))
   end
+  put(
+    "BUY safety rule",
+    string.format("%.0f%% ROI + %s", expl.minROI * 100, PP.Economy.FormatMoney(expl.minProfit)),
+    expl.rec
+  )
 
   while i <= #self.mathRows do
     self.mathRows[i].frame:Hide()
@@ -468,18 +472,35 @@ function UI:Refresh()
   self.verdict:SetText(rec)
   self.verdict:SetTextColor(unpack(color))
   if rec == "BUY" then
+    local minROI = (snap.minROI or PP.Economy.Policy.minROI) * 100
+    local minProfit = snap.minProfit or PP.Economy.Policy.minProfit
     Solid(self.verdictFill, 0.08, 0.22, 0.10, 0.92)
     Solid(self.verdictEdge, 0.35, 0.82, 0.32, 0.95)
     Solid(self.verdictEdgeB, 0.35, 0.82, 0.32, 0.45)
-    self.verdictWhy:SetText("Gems sell for more than the ore")
+    self.verdictWhy:SetText(string.format(
+      "Expected net clears %.0f%% ROI and %s profit",
+      minROI,
+      PP.Economy.FormatMoney(minProfit)
+    ))
   else
     Solid(self.verdictFill, 0.22, 0.08, 0.07, 0.92)
     Solid(self.verdictEdge, 0.85, 0.28, 0.22, 0.95)
     Solid(self.verdictEdgeB, 0.85, 0.28, 0.22, 0.45)
     if not snap then
-      self.verdictWhy:SetText("Scan to compare ore cost vs gem value")
+      self.verdictWhy:SetText("Scan to compare ore cost vs expected net")
+    elseif snap.decisionReason == "MIN_ROI" then
+      self.verdictWhy:SetText(string.format(
+        "Expected ROI is below the %.0f%% safety margin",
+        (snap.minROI or PP.Economy.Policy.minROI) * 100
+      ))
+    elseif snap.decisionReason == "MIN_PROFIT" then
+      self.verdictWhy:SetText(
+        "Expected profit is below the "
+          .. PP.Economy.FormatMoney(snap.minProfit or PP.Economy.Policy.minProfit)
+          .. " minimum"
+      )
     else
-      self.verdictWhy:SetText("The ore costs more than the gems")
+      self.verdictWhy:SetText("Expected net does not justify this purchase")
     end
   end
 
@@ -490,13 +511,13 @@ function UI:Refresh()
   local profit = snap and snap.profit or nil
   self.profitValue:SetText(PP.Economy.FormatMoney(profit))
   if profit and profit > 0 then
-    self.profitLabel:SetText("You keep")
+    self.profitLabel:SetText("Expected profit")
     self.profitValue:SetTextColor(unpack(POS))
   elseif profit and profit < 0 then
-    self.profitLabel:SetText("You lose")
+    self.profitLabel:SetText("Expected loss")
     self.profitValue:SetTextColor(unpack(NEG))
   else
-    self.profitLabel:SetText("You keep")
+    self.profitLabel:SetText("Expected profit")
     self.profitValue:SetTextColor(1, 0.96, 0.82)
   end
 
@@ -506,7 +527,7 @@ function UI:Refresh()
     local conn = ah and "AH connected" or "Offline"
     local missing = ""
     if snap and snap.missing and #snap.missing > 0 then
-      missing = string.format(" · %d gem(s) unlisted", #snap.missing)
+      missing = string.format(" · %d output(s) unlisted", #snap.missing)
     end
     if not snap then
       self.status:SetText(ah and "AH connected · no scan yet" or "Offline · no saved prices")
