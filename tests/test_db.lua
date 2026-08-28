@@ -85,7 +85,12 @@ now = now - 301
 
 -- Ore recommendations use the same short market TTL.
 local oreId = ada.id
-DB:SaveOre(oreId, { rec = "BUY", be1 = 1000, lastScan = now })
+DB:SaveOre(oreId, {
+  policyVersion = ProspectProfit.Economy.PolicyVersion,
+  rec = "BUY",
+  be1 = 1000,
+  lastScan = now,
+})
 check(DB:GetFreshOre(oreId) ~= nil, "fresh ore snapshot is actionable")
 check(DB:IsOreFresh(oreId), "fresh ore reports fresh")
 check(DB:OreAge(oreId) == 0, "fresh ore age is zero")
@@ -100,7 +105,12 @@ local missingOre, missingError = DB:GetFreshOre(999999)
 check(missingOre == nil, "missing ore snapshot is rejected")
 check(missingError == "Scan the market first", "missing ore asks for first scan")
 
-DB:SaveOre(oreId, { rec = "BUY", be1 = 1000, lastScan = now + 1 })
+DB:SaveOre(oreId, {
+  policyVersion = ProspectProfit.Economy.PolicyVersion,
+  rec = "BUY",
+  be1 = 1000,
+  lastScan = now + 1,
+})
 check(DB:GetFreshOre(oreId) == nil, "future-dated ore snapshot is rejected")
 
 -- BuildScanQueue: 0c gems are live-scanned, listed gems are cached

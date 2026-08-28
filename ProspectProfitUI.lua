@@ -370,7 +370,11 @@ function UI:ShowMath()
   if not ore then
     return
   end
-  local snap = PP.DB:GetOre(ore.id)
+  local snap, freshnessError = PP.DB:GetFreshOre(ore.id)
+  if not snap then
+    self:SetStatus(freshnessError or "Scan the market first")
+    return
+  end
   local expl = PP.Economy.Explain(ore, snap)
   self.mathTitle:SetText((expl.rec == "BUY" and "Why BUY" or "Why SKIP") .. " · " .. (PP.Data.GetName(ore.id) or ""))
 
@@ -466,7 +470,8 @@ function UI:Refresh()
   self.oreName:SetText(PP.Data.GetName(ore.id) or "?")
   self.oreSkill:SetText(string.format("Jewelcrafting %d+", ore.skill))
 
-  local snap = PP.DB:GetOre(ore.id)
+  local storedSnap = PP.DB:GetOre(ore.id)
+  local snap = PP.DB:GetFreshOre(ore.id)
   local rec = snap and snap.rec or "SKIP"
   local color = rec == "BUY" and BUY_COLOR or SKIP_COLOR
   self.verdict:SetText(rec)
@@ -523,13 +528,15 @@ function UI:Refresh()
 
   if not self.stickyStatus or self.stickyStatus == "" then
     local ah = PP.AH:IsOpen()
-    local age = PP.Economy.FormatAge(snap and snap.lastScan)
+    local age = PP.Economy.FormatAge(storedSnap and storedSnap.lastScan)
     local conn = ah and "AH connected" or "Offline"
     local missing = ""
     if snap and snap.missing and #snap.missing > 0 then
       missing = string.format(" · %d output(s) unlisted", #snap.missing)
     end
-    if not snap then
+    if not snap and storedSnap then
+      self.status:SetText(string.format("Last scan · %s · expired - scan again", age))
+    elseif not snap then
       self.status:SetText(ah and "AH connected · no scan yet" or "Offline · no saved prices")
     else
       self.status:SetText(string.format("Last scan · %s · %s%s", age, conn, missing))

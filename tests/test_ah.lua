@@ -65,8 +65,10 @@ best = AH.ChooseCheapestBuyout(best, { page = 1, index = 3, buyout = 1900, count
 best = AH.ChooseCheapestBuyout(best, { page = 2, index = 4, buyout = 900, count = 20 }, be1)
 check(best and best.page == 2 and best.buyout == 900, "cheapest profitable 20-stack wins across pages")
 
-local unprofitable = AH.ChooseCheapestBuyout(nil, { buyout = 2000, count = 20 }, be1)
-check(unprofitable == nil, "break-even stack is not selected")
+local atLimit = AH.ChooseCheapestBuyout(nil, { buyout = 2000, count = 20 }, be1)
+check(atLimit ~= nil, "safety-adjusted limit boundary is selected")
+local overLimit = AH.ChooseCheapestBuyout(nil, { buyout = 2001, count = 20 }, be1)
+check(overLimit == nil, "listing above the safety-adjusted limit is rejected")
 
 -- Legacy browse results expose 50 rows per page plus a total result count.
 check(AH.HasNextPage(0, 50, 120), "page 1 of 3 advances")
@@ -77,7 +79,12 @@ check(not AH.HasNextPage(0, 0, 0), "empty result set finishes")
 -- FindBuyout rejects persisted recommendations once the market snapshot expires.
 local ore = PP.Data.GetOre(1)
 DB:SetSelected(1)
-DB:SaveOre(ore.id, { rec = "BUY", be1 = 100, lastScan = now - DB.ORE_TTL })
+DB:SaveOre(ore.id, {
+  policyVersion = PP.Economy.PolicyVersion,
+  rec = "BUY",
+  be1 = 100,
+  lastScan = now - DB.ORE_TTL,
+})
 AH.isOpen = true
 local listing, findError
 AH:FindBuyout(1, function(found, err)
@@ -106,7 +113,12 @@ AH.FindBuyout = originalFindBuyout
 PP.UI = nil
 
 -- Confirmation cannot commit a listing tied to an old recommendation.
-DB:SaveOre(ore.id, { rec = "BUY", be1 = 100, lastScan = now })
+DB:SaveOre(ore.id, {
+  policyVersion = PP.Economy.PolicyVersion,
+  rec = "BUY",
+  be1 = 100,
+  lastScan = now,
+})
 local commitError
 AH:CommitBuyout({ itemId = ore.id, count = 20, buyout = 1000, marketScan = now - 1 }, function(_, err)
   commitError = err
