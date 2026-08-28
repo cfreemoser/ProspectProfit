@@ -12,7 +12,6 @@ Data.Names = {
   [10620] = "Thorium Ore",
   [23424] = "Fel Iron Ore",
   [23425] = "Adamantite Ore",
-  [23426] = "Khorium Ore",
   [774] = "Malachite",
   [818] = "Tigerseye",
   [1210] = "Shadowgem",
@@ -38,29 +37,42 @@ Data.Names = {
   [23439] = "Noble Topaz",
   [23440] = "Dawnstone",
   [23441] = "Nightseye",
+  [24186] = "Copper Powder",
+  [24188] = "Tin Powder",
+  [24190] = "Iron Powder",
+  [24234] = "Mithril Powder",
+  [24235] = "Thorium Powder",
+  [24242] = "Fel Iron Powder",
+  [24243] = "Adamantite Powder",
 }
 
-local function G(id, chance, rare)
-  return { id = id, chance = chance, rare = rare and true or false }
+local function O(id, expectedQuantity, rare)
+  return {
+    id = id,
+    expectedQuantity = expectedQuantity,
+    -- Kept for compatibility with callers from earlier releases.
+    chance = expectedQuantity,
+    rare = rare and true or false,
+  }
 end
 
 local TBC_GREEN = {
-  G(23077, 0.18),
-  G(23079, 0.18),
-  G(21929, 0.18),
-  G(23112, 0.18),
-  G(23107, 0.18),
-  G(23117, 0.18),
+  O(23077, 0.18),
+  O(23079, 0.18),
+  O(21929, 0.18),
+  O(23112, 0.18),
+  O(23107, 0.18),
+  O(23117, 0.18),
 }
 
 local function tbcRare(chance)
   return {
-    G(23436, chance, true),
-    G(23438, chance, true),
-    G(23439, chance, true),
-    G(23440, chance, true),
-    G(23441, chance, true),
-    G(23437, chance, true),
+    O(23436, chance, true),
+    O(23438, chance, true),
+    O(23439, chance, true),
+    O(23440, chance, true),
+    O(23441, chance, true),
+    O(23437, chance, true),
   }
 end
 
@@ -80,80 +92,88 @@ Data.Ores = {
     id = 2770,
     skill = 20,
     gems = {
-      G(774, 0.50),
-      G(818, 0.50),
-      G(1210, 0.10, true),
+      O(774, 0.50),
+      O(818, 0.50),
+      O(1210, 0.10, true),
+      O(24186, 1),
     },
   },
   {
     id = 2771,
     skill = 50,
     gems = {
-      G(1705, 0.38),
-      G(1206, 0.38),
-      G(1210, 0.38),
-      G(7909, 0.0333, true),
-      G(3864, 0.0333, true),
-      G(1529, 0.0333, true),
+      O(1705, 0.375),
+      O(1206, 0.375),
+      O(1210, 0.375),
+      O(7909, 0.0333, true),
+      O(3864, 0.0333, true),
+      O(1529, 0.0333, true),
+      O(24188, 1),
     },
   },
   {
     id = 2772,
     skill = 125,
     gems = {
-      G(1705, 0.35),
-      G(3864, 0.35),
-      G(1529, 0.35),
-      G(7910, 0.05, true),
-      G(7909, 0.05, true),
+      O(1705, 0.35),
+      O(3864, 0.35),
+      O(1529, 0.35),
+      O(7910, 0.05, true),
+      O(7909, 0.05, true),
+      O(24190, 1),
     },
   },
   {
     id = 3858,
     skill = 175,
     gems = {
-      G(7910, 0.35),
-      G(7909, 0.35),
-      G(3864, 0.35),
-      G(12361, 0.025, true),
-      G(12799, 0.025, true),
-      G(12800, 0.025, true),
-      G(12364, 0.025, true),
+      O(7910, 0.35),
+      O(7909, 0.35),
+      O(3864, 0.35),
+      O(12361, 0.025, true),
+      O(12799, 0.025, true),
+      O(12800, 0.025, true),
+      O(12364, 0.025, true),
+      O(24234, 1),
     },
   },
   {
     id = 10620,
     skill = 250,
     gems = {
-      G(7910, 0.30),
-      G(12364, 0.16),
-      G(12800, 0.16),
-      G(12361, 0.16),
-      G(12799, 0.16),
-      G(23077, 0.0166, true),
-      G(23079, 0.0166, true),
-      G(21929, 0.0166, true),
-      G(23112, 0.0166, true),
-      G(23107, 0.0166, true),
-      G(23117, 0.0166, true),
+      O(7910, 0.30),
+      O(12364, 0.16),
+      O(12800, 0.16),
+      O(12361, 0.16),
+      O(12799, 0.16),
+      O(23077, 0.0166, true),
+      O(23079, 0.0166, true),
+      O(21929, 0.0166, true),
+      O(23112, 0.0166, true),
+      O(23107, 0.0166, true),
+      O(23117, 0.0166, true),
+      O(24235, 1),
     },
   },
   {
     id = 23424,
     skill = 275,
-    gems = join(TBC_GREEN, tbcRare(0.013)),
+    gems = join(TBC_GREEN, tbcRare(0.013), {
+      O(24242, 1),
+    }),
   },
   {
     id = 23425,
     skill = 325,
-    gems = join(TBC_GREEN, tbcRare(0.04)),
-  },
-  {
-    id = 23426,
-    skill = 350,
-    gems = join(TBC_GREEN, tbcRare(0.04)),
+    gems = join(TBC_GREEN, tbcRare(0.04), {
+      O(24243, 1),
+    }),
   },
 }
+
+for _, ore in ipairs(Data.Ores) do
+  ore.outputs = ore.gems
+end
 
 function Data.GetName(itemId)
   local name = GetItemInfo(itemId)
@@ -187,8 +207,8 @@ function Data.UniqueScanIds(ore)
     end
   end
   add(ore.id)
-  for _, gem in ipairs(ore.gems) do
-    add(gem.id)
+  for _, output in ipairs(ore.outputs or ore.gems) do
+    add(output.id)
   end
   return ids
 end

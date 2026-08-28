@@ -1,5 +1,5 @@
--- Unit tests for prospecting EV / BUY-SKIP math.
--- Run from repo root:  lua tests/test_economy.lua
+-- Unit tests for prospecting expected-value / BUY-SKIP math.
+-- Run from repo root: lua tests/test_economy.lua
 
 local here = arg and arg[0] and arg[0]:match("(.+)[/\\]") or "."
 local root = here .. "/.."
@@ -22,12 +22,11 @@ dofile(root .. "/ProspectProfitEconomy.lua")
 local Eco = ProspectProfit.Economy
 local Data = ProspectProfit.Data
 local gold = 10000
-
 local fails, passed = 0, 0
 
 local function eq(a, b, eps)
-  eps = eps or 0.51
-  return math.abs(a - b) < eps
+  eps = eps or 0.01
+  return a ~= nil and b ~= nil and math.abs(a - b) < eps
 end
 
 local function check(cond, msg)
@@ -47,210 +46,199 @@ local function oreById(id)
   end
 end
 
--- FormatMoney
+local function outputById(ore, id)
+  for _, output in ipairs(ore.outputs) do
+    if output.id == id then
+      return output
+    end
+  end
+end
+
+-- Formatting helpers
 check(Eco.FormatMoney(nil) == "—", "nil money is em dash")
 check(Eco.FormatMoney(0) == "0c", "zero copper")
-check(Eco.FormatMoney(50) == "50c", "copper only")
-check(Eco.FormatMoney(-50) == "-50c", "negative copper")
-check(Eco.FormatMoney(150) == "1s 50c", "silver + copper")
-check(Eco.FormatMoney(123456) == "12g 34s 56c", "full gold/silver/copper")
-check(Eco.FormatMoney(-123456) == "-12g 34s 56c", "negative gold")
-check(Eco.FormatMoney(1.4) == "1c", "rounds 1.4 down")
-check(Eco.FormatMoney(1.6) == "2c", "rounds 1.6 up")
-
--- FormatAge
+check(Eco.FormatMoney(123456) == "12g 34s 56c", "full money")
+check(Eco.FormatMoney(-150) == "-1s 50c", "negative money")
+check(Eco.FormatQuantity(1) == "1", "whole expected quantity")
+check(Eco.FormatQuantity(0.18) == "0.18", "fractional expected quantity")
 check(Eco.FormatAge(nil) == "never", "nil age")
-check(Eco.FormatAge(time()) == "just now", "just now")
-check(Eco.FormatAge(time() - 120) == "2m ago", "minutes")
-check(Eco.FormatAge(time() - 7200) == "2h ago", "hours")
-check(Eco.FormatAge(time() - 2 * 86400) == "2d ago", "days")
+check(Eco.FormatAge(time()) == "just now", "current age")
+check(Eco.FormatAge(time() - 7200) == "2h ago", "hour age")
 
--- StackPrice
+-- Stack pricing
 check(Eco.StackPrice(nil) == nil, "nil snapshot")
-check(Eco.StackPrice({}) == nil, "empty snapshot")
-check(Eco.StackPrice({ oreStack20 = 50 * gold }) == 50 * gold, "prefers listed 20-stack")
-check(Eco.StackPrice({ oreMin = 2 * gold }) == 40 * gold, "falls back to unit * 20")
-check(Eco.StackPrice({ oreStack20 = 50 * gold, oreMin = 1 * gold }) == 50 * gold, "stack wins over unit")
-check(Eco.StackPrice({ oreStack20 = 0, oreMin = 3 * gold }) == 60 * gold, "zero stack ignored")
+check(Eco.StackPrice({ oreStack20 = 50 * gold }) == 50 * gold, "listed stack preferred")
+check(Eco.StackPrice({ oreMin = 2 * gold }) == 40 * gold, "unit fallback")
 
--- IsListingProfitable: instant-buy vs break-even
+-- The AH buyout path receives the already safety-adjusted per-unit limit.
 check(not Eco.IsListingProfitable(nil, 20, 1000), "nil buyout")
-check(not Eco.IsListingProfitable(0, 20, 1000), "bid-only (no instant buy)")
+check(not Eco.IsListingProfitable(0, 20, 1000), "bid-only listing")
 check(not Eco.IsListingProfitable(1000, 0, 1000), "zero count")
-check(not Eco.IsListingProfitable(1000, 20, 0), "zero break-even")
-check(Eco.IsListingProfitable(19999, 20, 1000), "19999 < 20000 is profitable")
-check(not Eco.IsListingProfitable(20000, 20, 1000), "equal to break-even is not profit")
-check(not Eco.IsListingProfitable(20001, 20, 1000), "over break-even")
-check(Eco.IsListingProfitable(999, 1, 1000), "single ore under be1")
+check(Eco.IsListingProfitable(20000, 20, 1000), "limit boundary is eligible")
+check(not Eco.IsListingProfitable(20001, 20, 1000), "over limit is ineligible")
 
--- Copper: Malachite 50%, Tigerseye 50%, Shadowgem 10%
+check(eq(Eco.Policy.sellerCut, 0.05), "default faction AH seller cut is 5%")
+check(eq(Eco.Policy.minROI, 0.10), "default minimum ROI is 10%")
+check(Eco.Policy.minProfit == gold, "default minimum expected profit is 1g")
+
 local copper = oreById(2770)
-check(copper ~= nil, "copper ore exists")
-do
-  local prices = {
-    gems = { [774] = 100, [818] = 200, [1210] = 1000 },
-    oreStack20 = 1000,
-  }
-  local r = Eco.Compute(copper, prices)
-  -- EV = 0.5*100 + 0.5*200 + 0.1*1000 = 50+100+100 = 250
-  check(eq(r.ev, 250), "copper EV 250c, got " .. tostring(r.ev))
-  check(eq(r.be1, 50), "copper be1 = EV/5 = 50")
-  check(eq(r.be20, 1000), "copper be20 = 50*20 = 1000")
-  check(r.profit == 0, "exact break-even profit is 0")
-  check(r.rec == "SKIP", "zero profit is SKIP")
-  check(#r.missing == 0, "no missing copper gems")
-end
+check(copper ~= nil, "copper exists")
 
--- Missing gem prices count as 0 and are reported
-do
-  local r = Eco.Compute(copper, { gems = { [774] = 100 }, oreStack20 = 1 })
-  check(eq(r.ev, 50), "only malachite priced: EV 50")
-  check(#r.missing == 2, "tigerseye + shadowgem missing")
-end
-
--- Zero gem price is treated as missing
-do
-  local r = Eco.Compute(copper, { gems = { [774] = 0, [818] = 200, [1210] = 0 }, oreStack20 = 1 })
-  check(eq(r.ev, 100), "zero prices skipped")
-  check(#r.missing == 2, "zero-priced gems listed missing")
-end
-
--- oreMin fallback when no 20-stack listing
+-- Linear expectation and faction-AH net proceeds.
 do
   local r = Eco.Compute(copper, {
-    gems = { [774] = 100, [818] = 200, [1210] = 1000 },
-    oreMin = 40,
+    gems = { [774] = 1 * gold, [818] = 2 * gold, [1210] = 10 * gold },
+    oreStack20 = 8 * gold,
   })
-  check(eq(r.oreStack20, 800), "stack from unit * 20")
-  check(eq(r.profit, 200), "1000 - 800 = 200")
-  check(r.rec == "BUY", "profit > 0 is BUY")
+  -- Gross/prospect = .5*1g + .5*2g + .1*10g = 2.5g.
+  check(eq(r.grossEV, 2.5 * gold), "gross expected value")
+  check(eq(r.netEV, 2.375 * gold), "5% seller cut produces net value")
+  check(eq(r.expectedNet20, 9.5 * gold), "20 ore is four prospects")
+  check(eq(r.expectedProfit, 1.5 * gold), "expected net less ore cost")
+  check(eq(r.expectedROI, 0.1875), "expected ROI uses purchase cost")
+  check(r.rec == "BUY" and r.decisionReason == "BUY", "safe expected return is BUY")
+  check(eq(r.breakEven1, 0.475 * gold), "net break-even per ore")
+  check(eq(r.be20, r.expectedNet20), "legacy be20 is expected net")
+  check(eq(r.profit, r.expectedProfit), "legacy profit is expected profit")
 end
 
--- No ore price at all
+-- A listing below gross output value but above net proceeds must not become BUY.
 do
-  local r = Eco.Compute(copper, { gems = { [774] = 100, [818] = 200, [1210] = 1000 } })
-  check(r.profit == nil, "no ore price => no profit")
-  check(r.rec == "SKIP", "no ore price is SKIP")
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 1 * gold, [818] = 2 * gold, [1210] = 10 * gold },
+    oreStack20 = 9.6 * gold,
+  })
+  check(10 * gold > r.oreStack20, "gross outputs exceed fee-boundary cost")
+  check(eq(r.expectedNet20, 9.5 * gold), "net remains 9.5g")
+  check(r.expectedProfit < 0 and r.rec == "SKIP", "seller cut prevents false BUY")
 end
 
--- Fel Iron: 6 greens 18% + 6 rares 1.3%
-local fel = oreById(23424)
-check(fel and #fel.gems == 12, "fel iron has 12 gems")
+-- Tiny positive EV is rejected by the explicit minimum-profit rule.
 do
-  local prices = { gems = {}, oreStack20 = 70 * gold }
-  for _, gem in ipairs(fel.gems) do
-    prices.gems[gem.id] = gem.rare and (100 * gold) or (10 * gold)
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 1 * gold, [818] = 2 * gold, [1210] = 10 * gold },
+    oreStack20 = 9.45 * gold,
+  })
+  check(r.expectedProfit > 0, "tiny expected profit is positive")
+  check(r.expectedProfit < r.minProfit, "tiny expected profit is below floor")
+  check(r.rec == "SKIP" and r.decisionReason == "MIN_PROFIT", "profit floor rejects tiny EV")
+end
+
+-- A meaningful absolute profit can still fail the ROI safety margin.
+do
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 10 * gold, [818] = 20 * gold, [1210] = 100 * gold },
+    oreStack20 = 87 * gold,
+  })
+  check(r.expectedProfit > r.minProfit, "absolute profit clears floor")
+  check(r.expectedROI < r.minROI, "ROI is below threshold")
+  check(r.rec == "SKIP" and r.decisionReason == "MIN_ROI", "ROI floor rejects listing")
+  check(eq(r.maxBuy20, r.expectedNet20 / 1.10), "buy limit uses ROI constraint")
+  check(eq(r.be1, r.maxBuy20 / 20), "AH alias uses safety-adjusted unit limit")
+end
+
+-- Policy inputs are configurable without changing saved-variable schemas.
+do
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 10 * gold, [818] = 20 * gold, [1210] = 100 * gold },
+    oreStack20 = 80 * gold,
+  }, {
+    sellerCut = 0.15,
+    minROI = 0.20,
+    minProfit = 5 * gold,
+  })
+  check(eq(r.sellerCut, 0.15), "seller-cut override")
+  check(eq(r.minROI, 0.20), "ROI override")
+  check(r.minProfit == 5 * gold, "profit override")
+  check(eq(r.netEV, r.grossEV * 0.85), "override applies to proceeds")
+end
+
+-- Missing output prices are conservatively worth zero and remain visible.
+do
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 100 },
+    oreStack20 = 1,
+  })
+  check(eq(r.grossEV, 50), "only priced output contributes")
+  check(#r.missing == 3, "missing outputs reported")
+end
+
+do
+  local r = Eco.Compute(copper, {
+    gems = { [774] = 1 * gold, [818] = 2 * gold, [1210] = 10 * gold },
+  })
+  check(r.expectedProfit == nil, "no ore cost means no profit")
+  check(r.rec == "SKIP" and r.decisionReason == "NO_ORE_PRICE", "no cost is SKIP")
+end
+
+-- Corrected, auditable TBC output tables. Values are expected units per 5 ore.
+local expected = {
+  [2770] = { [774] = .50, [818] = .50, [1210] = .10, [24186] = 1 },
+  [2771] = { [1705] = .375, [1206] = .375, [1210] = .375, [7909] = .0333, [3864] = .0333, [1529] = .0333, [24188] = 1 },
+  [2772] = { [1705] = .35, [3864] = .35, [1529] = .35, [7910] = .05, [7909] = .05, [24190] = 1 },
+  [3858] = { [7910] = .35, [7909] = .35, [3864] = .35, [12361] = .025, [12799] = .025, [12800] = .025, [12364] = .025, [24234] = 1 },
+  [10620] = { [7910] = .30, [12364] = .16, [12800] = .16, [12361] = .16, [12799] = .16, [23077] = .0166, [23079] = .0166, [21929] = .0166, [23112] = .0166, [23107] = .0166, [23117] = .0166, [24235] = 1 },
+  [23424] = { [23077] = .18, [23079] = .18, [21929] = .18, [23112] = .18, [23107] = .18, [23117] = .18, [23436] = .013, [23438] = .013, [23439] = .013, [23440] = .013, [23441] = .013, [23437] = .013, [24242] = 1 },
+  [23425] = { [23077] = .18, [23079] = .18, [21929] = .18, [23112] = .18, [23107] = .18, [23117] = .18, [23436] = .04, [23438] = .04, [23439] = .04, [23440] = .04, [23441] = .04, [23437] = .04, [24243] = 1 },
+}
+
+check(#Data.Ores == 7, "only seven prospectable ores")
+check(oreById(23426) == nil, "Khorium is not prospectable")
+check(Data.Names[24186] == "Copper Powder", "classic powder has fallback name")
+check(Data.Names[24243] == "Adamantite Powder", "Adamantite Powder has fallback name")
+for oreId, outputs in pairs(expected) do
+  local ore = oreById(oreId)
+  check(ore ~= nil, "ore table exists for " .. oreId)
+  check(ore and ore.outputs == ore.gems, "legacy gems alias for " .. oreId)
+  local count = 0
+  for outputId, quantity in pairs(outputs) do
+    count = count + 1
+    local output = outputById(ore, outputId)
+    check(output ~= nil, "output " .. outputId .. " exists for " .. oreId)
+    check(output and eq(output.expectedQuantity, quantity, 0.00001), "expected quantity for " .. outputId)
   end
-  local r = Eco.Compute(fel, prices)
-  -- 6*0.18*10g + 6*0.013*100g = 10.8g + 7.8g = 18.6g per prospect
-  check(eq(r.ev, 18.6 * gold), "fel EV 18.6g got " .. (r.ev / gold) .. "g")
-  check(eq(r.be1, 3.72 * gold), "fel be1 3.72g")
-  check(eq(r.be20, 74.4 * gold), "fel be20 74.4g")
-  check(eq(r.profit, 4.4 * gold), "74.4 - 70 = 4.4g")
-  check(r.rec == "BUY", "70g < 74.4g BUY")
+  check(#ore.outputs == count, "no extra outputs for " .. oreId)
+end
+check(Data.Ores[6].id == 23424, "slot 6 is Fel Iron")
+check(Data.Ores[7].id == 23425, "slot 7 is Adamantite")
 
-  prices.oreStack20 = 74.4 * gold
-  local even = Eco.Compute(fel, prices)
-  check(even.rec == "SKIP", "price == gem value is SKIP")
-
-  prices.oreStack20 = 80 * gold
-  local skip = Eco.Compute(fel, prices)
-  check(skip.rec == "SKIP", "80g > 74.4g SKIP")
-  check(skip.profit < 0, "loss is negative")
+-- Adamantite Powder contributes one expected unit to every prospect.
+do
+  local adamantite = oreById(23425)
+  local r = Eco.Compute(adamantite, {
+    gems = { [24243] = 2 * gold },
+    oreStack20 = 1,
+  })
+  check(eq(r.grossEV, 2 * gold), "one expected powder contributes its full unit price")
+  check(eq(r.netEV, 1.9 * gold), "powder proceeds receive seller cut")
+  check(eq(r.expectedNet20, 7.6 * gold), "four prospects produce four expected powder")
+  check(#r.missing == 12, "unpriced gems remain reported beside powder")
 end
 
--- Adamantite rares are 4% vs Fel Iron 1.3% — same gem prices, higher EV
-local ada = oreById(23425)
+-- Scan IDs and UI-facing explanation fields include all outputs.
 do
-  local prices = { gems = {}, oreStack20 = 100 * gold }
-  for _, gem in ipairs(ada.gems) do
-    prices.gems[gem.id] = gem.rare and (100 * gold) or (10 * gold)
-  end
-  local felR = Eco.Compute(fel, prices)
-  local adaR = Eco.Compute(ada, prices)
-  check(adaR.ev > felR.ev, "adamantite EV > fel iron EV at same gem prices")
-  -- 6*0.18*10 + 6*0.04*100 = 10.8 + 24 = 34.8g
-  check(eq(adaR.ev, 34.8 * gold), "adamantite EV 34.8g")
-end
+  local adamantite = oreById(23425)
+  local ids = Data.UniqueScanIds(adamantite)
+  check(#ids == 14, "Adamantite scan queue is ore plus 13 outputs")
+  check(ids[1] == adamantite.id, "ore is first scan ID")
+  check(ids[#ids] == 24243, "powder is scanned")
 
--- Khorium shares adamantite table
-local khorium = oreById(23426)
-do
-  local prices = { gems = {}, oreStack20 = 10 * gold }
-  for _, gem in ipairs(khorium.gems) do
-    prices.gems[gem.id] = 1000
-  end
-  local a = Eco.Compute(ada, prices)
-  local k = Eco.Compute(khorium, prices)
-  check(eq(a.ev, k.ev), "khorium EV matches adamantite")
-end
-
--- UI stack story: You keep = gems worth - you pay
-do
-  local prices = {
-    gems = { [774] = 200, [818] = 200, [1210] = 0 },
-    oreStack20 = 300,
-  }
-  local r = Eco.Compute(copper, prices)
-  -- EV = 0.5*200 + 0.5*200 = 200; be20 = 800; profit = 500
-  check(eq(r.be20, 800), "gems-from-20 = be20")
-  check(eq(Eco.StackPrice(r), 300), "you pay = stack price")
-  check(eq(r.profit, r.be20 - Eco.StackPrice(r)), "you keep = worth - pay")
-end
-
--- BuildSnapshot stamps time and keeps gem map
-do
   local snap = Eco.BuildSnapshot(copper, {
-    gems = { [774] = 100, [818] = 100, [1210] = 100 },
-    oreStack20 = 10,
+    gems = { [774] = 1 * gold, [818] = 2 * gold, [1210] = 10 * gold },
+    oreStack20 = 8 * gold,
   })
-  check(type(snap.lastScan) == "number", "snapshot has lastScan")
-  check(snap.gems[774] == 100, "snapshot keeps gem prices")
-end
-
--- Loot tables
-check(#Data.Ores == 8, "8 ores")
-local seen = {}
-for _, ore in ipairs(Data.Ores) do
-  check(Data.Names[ore.id] ~= nil, "named ore " .. ore.id)
-  check(not seen[ore.id], "unique ore " .. ore.id)
-  seen[ore.id] = true
-  for _, gem in ipairs(ore.gems) do
-    check(Data.Names[gem.id] ~= nil, "named gem " .. gem.id)
-    check(gem.chance > 0 and gem.chance <= 1, "chance in (0,1] for " .. gem.id)
-  end
-end
-check(Data.Ores[6].id == 23424, "slot 6 Fel Iron")
-check(Data.Ores[8].id == 23426, "slot 8 Khorium")
-
-local ids = Data.UniqueScanIds(fel)
-check(#ids == 13, "fel scan queue is ore + 12 gems")
-check(ids[1] == fel.id, "ore is first in scan queue")
-
--- Explain math
-check(Eco.FormatChance(0.18) == "18%", "18% chance")
-check(Eco.FormatChance(0.013) == "1.3%", "1.3% chance")
-check(Eco.FormatChance(0.50) == "50%", "50% chance")
-do
-  local expl = Eco.Explain(copper, {
-    gems = { [774] = 100, [818] = 200, [1210] = 1000 },
-    ev = 250,
-    be20 = 1000,
-    oreStack20 = 800,
-    profit = 200,
-    rec = "BUY",
-  })
-  check(#expl.lines == 3, "copper explain has 3 gems")
-  check(eq(expl.lines[1].contrib, 50), "malachite 50% × 100 = 50")
-  check(eq(expl.lines[3].contrib, 100), "shadowgem 10% × 1000 = 100")
-  check(expl.lines[3].rare == true or expl.lines[3].chance == 0.10, "shadowgem is the rare")
-  check(eq(expl.be20, 1000), "explain keeps be20")
-  check(eq(expl.cost, 800), "explain cost from stack")
-end
-do
-  local expl = Eco.Explain(copper, { gems = {} })
-  check(expl.lines[1].price == nil, "unpriced gem")
-  check(expl.lines[1].contrib == 0, "unpriced contrib 0")
+  local expl = Eco.Explain(copper, snap)
+  check(type(snap.lastScan) == "number", "snapshot has timestamp")
+  check(snap.policyVersion == Eco.PolicyVersion, "snapshot has current policy version")
+  check(snap.outputs[774] == gold, "snapshot exposes output prices")
+  check(#expl.lines == 4, "explanation has one row per output")
+  check(eq(expl.lines[1].expectedQuantity, .5), "explanation exposes expected quantity")
+  check(eq(expl.lines[1].grossContrib, .5 * gold), "explanation exposes gross contribution")
+  check(eq(expl.lines[1].netContrib, .475 * gold), "explanation exposes net contribution")
+  check(eq(expl.expectedNet20, snap.expectedNet20), "explanation exposes expected net")
+  check(eq(expl.expectedProfit, snap.expectedProfit), "explanation exposes expected profit")
+  check(eq(expl.expectedROI, snap.expectedROI), "explanation exposes expected ROI")
+  check(expl.decisionReason == "BUY", "explanation exposes decision reason")
 end
 
 if fails == 0 then

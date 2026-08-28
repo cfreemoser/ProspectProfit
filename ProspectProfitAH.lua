@@ -116,6 +116,39 @@ local function SendQuery(name, page)
   QueryAuctionItems(name, nil, nil, page, nil, nil, false, true)
 end
 
+function AH.MinPositiveUnit(current, buyout, count)
+  buyout = tonumber(buyout) or 0
+  count = tonumber(count) or 0
+  if buyout <= 0 or count <= 0 then
+    return current
+  end
+  local unit = buyout / count
+  if not current or unit < current then
+    return unit
+  end
+  return current
+end
+
+function AH.ChooseCheapestBuyout(current, candidate, be1)
+  if not candidate or candidate.count ~= STACK_SIZE then
+    return current
+  end
+  if not PP.Economy.IsListingProfitable(candidate.buyout, candidate.count, be1) then
+    return current
+  end
+  if not current or candidate.buyout < current.buyout then
+    return candidate
+  end
+  return current
+end
+
+function AH.HasNextPage(page, batch, total)
+  page = tonumber(page) or 0
+  batch = tonumber(batch) or 0
+  total = tonumber(total) or 0
+  return total > 0 and ((page * PAGE_SIZE) + batch) < total
+end
+
 function AH:ResetJob()
   self.scanning = false
   self.expecting = false
@@ -127,8 +160,6 @@ function AH:ResetJob()
   self.results = nil
   self.onComplete = nil
   self.commit = nil
-  self.sorted = nil
-  self.pendingSort = nil
   self.cachedGems = nil
   self.liveGems = nil
   self.generation = (self.generation or 0) + 1
@@ -177,42 +208,30 @@ function AH:CollectPage(itemId)
   for i = 1, batch do
     local _, count, buyout, rowId = ReadRow(i)
     if rowId == itemId and buyout > 0 and count > 0 then
-      local unit = buyout / count
       if itemId == self.ore.id then
-        if not r.oreMin or unit < r.oreMin then
-          r.oreMin = unit
-        end
+        r.oreMin = AH.MinPositiveUnit(r.oreMin, buyout, count)
         if count == STACK_SIZE and (not r.oreStack20 or buyout < r.oreStack20) then
           r.oreStack20 = buyout
         end
-        -- Buyout/commit only care about stacks of 20. After a buyout sort the
-        -- first profitable 20-stack is the cheapest; later pages are more expensive.
-        if (self.mode == "buyout" or self.mode == "commit") and count ~= STACK_SIZE then
-          -- skip singles / odd stacks
-        else
-          local be1 = r.be1
-          if self.mode == "buyout" and be1 and PP.Economy.IsListingProfitable(buyout, count, be1) then
-            if not r.best then
-              r.best = {
-                page = self.page,
-                index = i,
-                buyout = buyout,
-                count = count,
-                itemId = itemId,
-              }
-            end
-          end
-          if self.mode == "commit" and self.commit and not r.commitHit then
-            local want = self.commit
-            if buyout <= want.buyout and count == want.count and itemId == want.itemId then
-              r.commitHit = { index = i, buyout = buyout, count = count, itemId = itemId }
-            end
+        if self.mode == "buyout" then
+          local candidate = {
+            page = self.page,
+            index = i,
+            buyout = buyout,
+            count = count,
+            itemId = itemId,
+            marketScan = r.snapshotLastScan,
+          }
+          r.best = AH.ChooseCheapestBuyout(r.best, candidate, r.be1)
+        end
+        if self.mode == "commit" and self.commit and not r.commitHit then
+          local want = self.commit
+          if buyout <= want.buyout and count == want.count and itemId == want.itemId then
+            r.commitHit = { index = i, buyout = buyout, count = count, itemId = itemId }
           end
         end
       else
-        if not r.gems[itemId] or unit < r.gems[itemId] then
-          r.gems[itemId] = unit
-        end
+        r.gems[itemId] = AH.MinPositiveUnit(r.gems[itemId], buyout, count)
       end
     end
   end
@@ -265,8 +284,6 @@ end
 function AH:Advance()
   self.qi = (self.qi or 1) + 1
   self.page = 0
-  self.sorted = false
-  self.pendingSort = nil
   if not self.queue or self.qi > #self.queue then
     self:Finish()
     return
@@ -304,25 +321,12 @@ function AH:QueryCurrent()
   end
 
   self:WhenReady(function()
-    if (self.page or 0) == 0 then
-      self.sorted = false
-      self.pendingSort = nil
-    end
     self.expecting = true
     if PP.UI then
       PP.UI:SetStatus(self:StatusText())
     end
     SendQuery(name, self.page)
   end)
-end
-
-function AH:WantsSort()
-  if self.sorted or (self.page or 0) ~= 0 then
-    return false
-  end
-  -- Gem scans page every listing for min unit buyout. Sorting needs the
-  -- browse frame, which the Prospect tab hides, and was saving 0c prices.
-  return self.mode == "buyout" or self.mode == "commit"
 end
 
 function AH:FinishGem(itemId)
@@ -341,7 +345,7 @@ function AH:ProcessPage(itemId)
     end
     -- Keep paging until a matching 20-stack appears, then stop.
     local batch, total = GetNumAuctionItems("list")
-    if (total or 0) > 0 and ((self.page * PAGE_SIZE) + batch) < total then
+    if AH.HasNextPage(self.page, batch, total) then
       self.page = self.page + 1
       self:QueryCurrent()
       return
@@ -351,12 +355,8 @@ function AH:ProcessPage(itemId)
   end
 
   if self.mode == "buyout" then
-    if self.results and self.results.best then
-      self:Finish()
-      return
-    end
     local batch, total = GetNumAuctionItems("list")
-    if (total or 0) > 0 and ((self.page * PAGE_SIZE) + batch) < total then
+    if AH.HasNextPage(self.page, batch, total) then
       self.page = self.page + 1
       self:QueryCurrent()
       return
@@ -367,9 +367,7 @@ function AH:ProcessPage(itemId)
 
   if self:IsGemQuery() then
     local batch, total = GetNumAuctionItems("list")
-    total = total or 0
-    local scanned = self.page * PAGE_SIZE + batch
-    if total > 0 and scanned < total then
+    if AH.HasNextPage(self.page, batch, total) then
       self.page = self.page + 1
       self:QueryCurrent()
       return
@@ -379,9 +377,7 @@ function AH:ProcessPage(itemId)
   end
 
   local batch, total = GetNumAuctionItems("list")
-  total = total or 0
-  local scanned = self.page * PAGE_SIZE + batch
-  if total > 0 and scanned < total then
+  if AH.HasNextPage(self.page, batch, total) then
     self.page = self.page + 1
     self:QueryCurrent()
     return
@@ -398,29 +394,6 @@ function AH:OnListUpdate()
   if not itemId then
     self.expecting = false
     self:Finish()
-    return
-  end
-
-  if self.pendingSort == itemId then
-    self.expecting = false
-    self.pendingSort = nil
-    self:ProcessPage(itemId)
-    return
-  end
-
-  if self:WantsSort() and SortAuctionItems then
-    self.sorted = true
-    self.pendingSort = itemId
-    local gen = self.generation
-    local qi = self.qi
-    After(0.40, function()
-      if self.generation == gen and self.scanning and self.expecting and self.pendingSort == itemId and self.qi == qi then
-        self.expecting = false
-        self.pendingSort = nil
-        self:ProcessPage(itemId)
-      end
-    end)
-    SortAuctionItems("list", "buyout")
     return
   end
 
@@ -443,6 +416,16 @@ function AH:Finish()
   end
 
   if mode == "buyout" then
+    local fresh, freshnessError = PP.DB:GetFreshOre(ore.id)
+    if not fresh or fresh.rec ~= "BUY" or fresh.lastScan ~= results.snapshotLastScan then
+      if cb then
+        cb(nil, freshnessError or PP.DB.STALE_ORE_ERROR)
+      end
+      if PP.UI then
+        PP.UI:Refresh()
+      end
+      return
+    end
     if cb then
       cb(results.best, results.best and nil or "No stack of 20 listed")
     end
@@ -454,7 +437,12 @@ function AH:Finish()
 
   if mode == "commit" then
     local hit = results.commitHit
-    if not hit then
+    local fresh, freshnessError = PP.DB:GetFreshOre(ore.id)
+    if not fresh or fresh.rec ~= "BUY" or fresh.lastScan ~= results.snapshotLastScan then
+      if cb then
+        cb(nil, freshnessError or PP.DB.STALE_ORE_ERROR)
+      end
+    elseif not hit then
       if cb then
         cb(nil, "Listing gone — scan again")
       end
@@ -554,7 +542,6 @@ function AH:StartScan(oreIndex, force)
   self.queue = queue
   self.qi = 1
   self.page = 0
-  self.sorted = false
   self.cachedGems = cached
   self.liveGems = live
   self.results = { gems = gems, usedCache = cached }
@@ -581,9 +568,13 @@ function AH:FindBuyout(oreIndex, callback)
     callback(nil, "Unknown ore")
     return
   end
-  local snap = PP.DB:GetOre(ore.id)
-  if not snap or not snap.be1 or snap.be1 <= 0 then
-    callback(nil, "Scan the market first")
+  local snap, freshnessError = PP.DB:GetFreshOre(ore.id)
+  if not snap then
+    callback(nil, freshnessError)
+    return
+  end
+  if snap.rec ~= "BUY" or not snap.be1 or snap.be1 <= 0 then
+    callback(nil, "No profitable stack")
     return
   end
 
@@ -593,7 +584,7 @@ function AH:FindBuyout(oreIndex, callback)
   self.queue = { ore.id }
   self.qi = 1
   self.page = 0
-  self.results = { gems = {}, be1 = snap.be1 }
+  self.results = { gems = {}, be1 = snap.be1, snapshotLastScan = snap.lastScan }
   self.onComplete = callback
   if PP.UI then
     PP.UI:SetStatus(self:StatusText())
@@ -623,7 +614,15 @@ function AH:CommitBuyout(listing, callback)
     callback(nil, "Unknown ore")
     return
   end
-  local snap = PP.DB:GetOre(ore.id)
+  local snap, freshnessError = PP.DB:GetFreshOre(ore.id)
+  if not snap then
+    callback(nil, freshnessError)
+    return
+  end
+  if snap.rec ~= "BUY" or not listing.marketScan or listing.marketScan ~= snap.lastScan then
+    callback(nil, PP.DB.STALE_ORE_ERROR)
+    return
+  end
   self.scanning = true
   self.mode = "commit"
   self.ore = ore
@@ -631,7 +630,7 @@ function AH:CommitBuyout(listing, callback)
   self.queue = { ore.id }
   self.qi = 1
   self.page = 0
-  self.results = { gems = {}, be1 = snap and snap.be1 or 0 }
+  self.results = { gems = {}, be1 = snap.be1 or 0, snapshotLastScan = snap.lastScan }
   self.onComplete = callback
   if PP.UI then
     PP.UI:SetStatus("Placing buyout…")
