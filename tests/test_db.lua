@@ -72,6 +72,26 @@ now = now + 301
 check(DB:GetFreshGem(23107) == nil, "expired gem is not fresh")
 now = now - 301
 
+-- Ore recommendations use the same short market TTL.
+local oreId = ada.id
+DB:SaveOre(oreId, { rec = "BUY", be1 = 1000, lastScan = now })
+check(DB:GetFreshOre(oreId) ~= nil, "fresh ore snapshot is actionable")
+check(DB:IsOreFresh(oreId), "fresh ore reports fresh")
+check(DB:OreAge(oreId) == 0, "fresh ore age is zero")
+now = now + DB.ORE_TTL
+local expired, expiredError = DB:GetFreshOre(oreId)
+check(expired == nil, "expired ore snapshot is rejected")
+check(expiredError == DB.STALE_ORE_ERROR, "expired ore asks for another scan")
+check(not DB:IsOreFresh(oreId), "expired ore reports stale")
+now = now - DB.ORE_TTL
+
+local missingOre, missingError = DB:GetFreshOre(999999)
+check(missingOre == nil, "missing ore snapshot is rejected")
+check(missingError == "Scan the market first", "missing ore asks for first scan")
+
+DB:SaveOre(oreId, { rec = "BUY", be1 = 1000, lastScan = now + 1 })
+check(DB:GetFreshOre(oreId) == nil, "future-dated ore snapshot is rejected")
+
 -- BuildScanQueue: 0c gems are live-scanned, listed gems are cached
 DB:Realm().gems = {}
 local gems = ada.gems

@@ -42,7 +42,11 @@ function DB:Realm()
   return realm
 end
 
-local GEM_TTL = 300
+local MARKET_TTL = 300
+local GEM_TTL = MARKET_TTL
+
+DB.ORE_TTL = MARKET_TTL
+DB.STALE_ORE_ERROR = "Market scan expired - scan again"
 
 function DB:GetFreshGem(itemId)
   local g = self:Realm().gems[itemId]
@@ -97,6 +101,30 @@ end
 function DB:GetOre(oreId)
   local bucket = self:Realm().ores[oreId]
   return bucket
+end
+
+function DB:OreAge(oreId)
+  local snapshot = self:GetOre(oreId)
+  if not snapshot or not snapshot.lastScan then
+    return nil
+  end
+  return time() - snapshot.lastScan
+end
+
+function DB:IsOreFresh(oreId)
+  local age = self:OreAge(oreId)
+  return age ~= nil and age >= 0 and age < self.ORE_TTL
+end
+
+function DB:GetFreshOre(oreId)
+  local snapshot = self:GetOre(oreId)
+  if not snapshot then
+    return nil, "Scan the market first"
+  end
+  if not self:IsOreFresh(oreId) then
+    return nil, self.STALE_ORE_ERROR
+  end
+  return snapshot
 end
 
 function DB:SaveOre(oreId, snapshot)

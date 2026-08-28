@@ -439,7 +439,7 @@ function UI:RefreshButtons()
     self.scan:Disable()
   end
   local ore = PP.Data.GetOre(PP:GetSelected())
-  local snap = ore and PP.DB:GetOre(ore.id)
+  local snap = ore and PP.DB:GetFreshOre(ore.id)
   local canBuy = not busy and not confirmOpen and snap and snap.rec == "BUY"
   if canBuy then
     self.buy:Enable()

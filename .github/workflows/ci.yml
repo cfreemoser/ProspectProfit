@@ -19,4 +19,4 @@ jobs:
           # Lua 5.1's own sources warn on modern gcc; not our code.
           luaCompileFlags: "MYCFLAGS=-w"
       - name: Run tests
-        run: lua tests/test_economy.lua && lua tests/test_db.lua
+        run: lua tests/test_economy.lua && lua tests/test_db.lua && lua tests/test_ah.lua

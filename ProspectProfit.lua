@@ -90,8 +90,17 @@ function PP:BuyoutStack()
     return
   end
   local ore = self.Data.GetOre(self:GetSelected())
-  local snap = ore and self.DB:GetOre(ore.id)
-  if not snap or snap.rec ~= "BUY" then
+  local snap, freshnessError
+  if ore then
+    snap, freshnessError = self.DB:GetFreshOre(ore.id)
+  end
+  if not snap then
+    if self.UI then
+      self.UI:SetStatus(freshnessError or "Scan the market first")
+    end
+    return
+  end
+  if snap.rec ~= "BUY" then
     if self.UI then
       self.UI:SetStatus("No profitable stack")
     end
